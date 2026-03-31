@@ -16,12 +16,20 @@ const {
 const fs = require('fs');
 
 // ===== CONFIG =====
-const TOKEN = 'MTQ4ODUyNDY4Nzg0MjczODI5Ng.GITj5-.kn-543Z89drU2iWEJWPIKzrKbZIlZuei5l4Zx0'; // Railway
-const CLIENT_ID = '1488524687842738296';
-const GUILD_ID = '1469406162662195272';
+require('dotenv').config();
 
-const CANAL_LAVAGEM_ID = '1469409574325850172'; // 💸┃vendas
-const CANAL_RANKING_ID = '1469409662997889115'; // 📞┃ranking
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+
+const CANAL_LAVAGEM_ID = process.env.CANAL_LAVAGEM_ID;
+const CANAL_RANKING_ID = process.env.CANAL_RANKING_ID;
+
+// validação
+if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
+    console.error('❌ Variáveis não configuradas!');
+    process.exit(1);
+
 // ==================
 
 const client = new Client({
