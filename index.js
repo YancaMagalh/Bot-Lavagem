@@ -14,23 +14,18 @@ const {
 } = require('discord.js');
 
 const fs = require('fs');
-
-// ===== CONFIG =====
 require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
-
 const CANAL_LAVAGEM_ID = process.env.CANAL_LAVAGEM_ID;
 const CANAL_RANKING_ID = process.env.CANAL_RANKING_ID;
 
-// validação
 if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
     console.error('❌ Variáveis não configuradas!');
     process.exit(1);
-
-// ==================
+}
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
@@ -41,7 +36,6 @@ if (fs.existsSync('ranking.json')) {
     dados = JSON.parse(fs.readFileSync('ranking.json'));
 }
 
-// ===== COMANDO =====
 const commands = [
     new SlashCommandBuilder()
         .setName('ranking')
@@ -59,130 +53,112 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
         );
         console.log('✅ Comandos registrados');
     } catch (err) {
-        console.error('Erro ao registrar comandos:', err);
+        console.error(err);
     }
 })();
 
-// ===== BOT ONLINE =====
 client.once('clientReady', async () => {
     console.log(`🤖 Bot online como ${client.user.tag}`);
 
-    try {
-        const canal = await client.channels.fetch(CANAL_LAVAGEM_ID);
+    const canal = await client.channels.fetch(CANAL_LAVAGEM_ID);
 
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('parceria')
-                .setLabel('🤝 Com parceria (25%)')
-                .setStyle(ButtonStyle.Success),
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('parceria')
+            .setLabel('🤝 Com parceria (25%)')
+            .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+            .setCustomId('sem_parceria')
+            .setLabel('💼 Sem parceria (30%)')
+            .setStyle(ButtonStyle.Danger)
+    );
 
-            new ButtonBuilder()
-                .setCustomId('sem_parceria')
-                .setLabel('💼 Sem parceria (30%)')
-                .setStyle(ButtonStyle.Danger)
-        );
+    const embed = new EmbedBuilder()
+        .setTitle('💸 Sistema de Lavagem')
+        .setDescription('Clique abaixo para iniciar')
+        .setColor(0x00ff88);
 
-        const embed = new EmbedBuilder()
-            .setTitle('💸 Sistema de Lavagem')
-            .setDescription('Clique abaixo para iniciar')
-            .setColor(0x00ff88);
-
-        await canal.send({ embeds: [embed], components: [row] });
-
-    } catch (err) {
-        console.error('Erro ao enviar painel:', err);
-    }
+    canal.send({ embeds: [embed], components: [row] });
 });
 
-// ===== INTERAÇÕES =====
 client.on('interactionCreate', async interaction => {
-    try {
 
-        // BOTÃO
-        if (interaction.isButton()) {
-            const modal = new ModalBuilder()
-                .setCustomId(interaction.customId)
-                .setTitle('💰 Valor da lavagem');
+    if (interaction.isButton()) {
+        const modal = new ModalBuilder()
+            .setCustomId(interaction.customId)
+            .setTitle('💰 Valor da lavagem');
 
-            const input = new TextInputBuilder()
-                .setCustomId('valor')
-                .setLabel('Digite o valor')
-                .setStyle(TextInputStyle.Short);
+        const input = new TextInputBuilder()
+            .setCustomId('valor')
+            .setLabel('Digite o valor')
+            .setStyle(TextInputStyle.Short);
 
-            modal.addComponents(new ActionRowBuilder().addComponents(input));
-            return interaction.showModal(modal);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
+    }
+
+    if (interaction.isModalSubmit()) {
+
+        const valor = parseFloat(interaction.fields.getTextInputValue('valor'));
+
+        if (isNaN(valor)) {
+            return interaction.reply({ content: '❌ Valor inválido!', ephemeral: true });
         }
 
-        // MODAL
-        if (interaction.isModalSubmit()) {
+        const taxa = interaction.customId === 'parceria' ? 0.25 : 0.30;
+        const aposTaxa = valor * (1 - taxa);
+        const lucro = aposTaxa * 0.10;
+        const banco = aposTaxa - lucro;
 
-            const valor = parseFloat(interaction.fields.getTextInputValue('valor'));
+        if (!dados[interaction.user.id]) dados[interaction.user.id] = 0;
+        dados[interaction.user.id] += valor;
 
-            if (isNaN(valor)) {
-                return interaction.reply({ content: '❌ Valor inválido!', ephemeral: true });
-            }
+        fs.writeFileSync('ranking.json', JSON.stringify(dados, null, 2));
 
-            const taxa = interaction.customId === 'parceria' ? 0.25 : 0.30;
-            const aposTaxa = valor * (1 - taxa);
-            const lucro = aposTaxa * 0.10;
-            const banco = aposTaxa - lucro;
+        const embed = new EmbedBuilder()
+            .setTitle('💸 Lavagem realizada')
+            .setColor(0x00ff88)
+            .addFields(
+                { name: '👤 Usuário', value: `<@${interaction.user.id}>` },
+                { name: '💰 Valor', value: `${valor}` },
+                { name: '📉 Taxa', value: `${taxa * 100}%` },
+                { name: '💵 Após taxa', value: `${aposTaxa.toFixed(2)}` },
+                { name: '🧾 Lucro', value: `${lucro.toFixed(2)}` },
+                { name: '🏦 Banco', value: `${banco.toFixed(2)}` }
+            );
 
-            // salvar ranking
-            if (!dados[interaction.user.id]) dados[interaction.user.id] = 0;
-            dados[interaction.user.id] += valor;
+        const canal = await client.channels.fetch(CANAL_LAVAGEM_ID);
+        const msg = await canal.send({ embeds: [embed] });
 
-            fs.writeFileSync('ranking.json', JSON.stringify(dados, null, 2));
+        setTimeout(() => msg.delete().catch(() => {}), 5000);
 
-            const embed = new EmbedBuilder()
-                .setTitle('💸 Lavagem realizada')
-                .setColor(0x00ff88)
-                .addFields(
-                    { name: '👤 Usuário', value: `<@${interaction.user.id}>` },
-                    { name: '💰 Valor recebido', value: `${valor}` },
-                    { name: '📉 Taxa', value: `${taxa * 100}%` },
-                    { name: '💵 Após taxa', value: `${aposTaxa.toFixed(2)}` },
-                    { name: '🧾 Lucro (10%)', value: `${lucro.toFixed(2)}` },
-                    { name: '🏦 Banco', value: `${banco.toFixed(2)}` }
-                );
+        await interaction.reply({
+            content: '✅ Lavagem registrada!',
+            ephemeral: true
+        });
 
-            const canal = await client.channels.fetch(CANAL_LAVAGEM_ID);
-            const msg = await canal.send({ embeds: [embed] });
+        const ranking = Object.entries(dados)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
 
-            // apagar mensagem
-            setTimeout(() => msg.delete().catch(() => {}), 5000);
+        const medals = ['🥇', '🥈', '🥉'];
 
-            await interaction.reply({
-                content: '✅ Lavagem registrada!',
-                ephemeral: true
-            });
+        const texto = ranking.map((r, i) => {
+            const medal = medals[i] || '🏅';
+            return `${medal} <@${r[0]}> - 💰 ${r[1]}`;
+        }).join('\n');
 
-            // ===== RANKING AUTO =====
-            const ranking = Object.entries(dados)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 10);
+        const embedRanking = new EmbedBuilder()
+            .setTitle('📊 Ranking de Lavagem')
+            .setColor(0xffd700)
+            .setDescription(texto || 'Sem dados');
 
-            const medals = ['🥇', '🥈', '🥉'];
+        const canalRanking = await client.channels.fetch(CANAL_RANKING_ID);
 
-            const texto = ranking.map((r, i) => {
-                const medal = medals[i] || '🏅';
-                return `${medal} <@${r[0]}> - 💰 ${r[1]}`;
-            }).join('\n');
+        const mensagens = await canalRanking.messages.fetch({ limit: 10 });
+        await canalRanking.bulkDelete(mensagens).catch(() => {});
 
-            const embedRanking = new EmbedBuilder()
-                .setTitle('📊 Ranking de Lavagem')
-                .setColor(0xffd700)
-                .setDescription(texto || 'Sem dados');
-
-            const canalRanking = await client.channels.fetch(CANAL_RANKING_ID);
-
-            const mensagens = await canalRanking.messages.fetch({ limit: 10 });
-            await canalRanking.bulkDelete(mensagens).catch(() => {});
-
-            await canalRanking.send({ embeds: [embedRanking] });
-        }
-
-    } catch (err) {
-        console.error('Erro na interação:', err);
+        canalRanking.send({ embeds: [embedRanking] });
     }
 });
 
