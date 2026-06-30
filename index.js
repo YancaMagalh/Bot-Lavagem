@@ -13,26 +13,50 @@ const {
     EmbedBuilder,
     StringSelectMenuBuilder
 } = require('discord.js');
-
+const fs = require('fs');
 require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
-
-const CANAL_VENDAS = process.env.CANAL_VENDAS;
-const CANAL_LOGS = process.env.CANAL_LOGS;
+const CANAL_VENDAS_ID = process.env.CANAL_LAVAGEM_ID;
+const CANAL_LOGS_ID = process.env.CANAL_RANKING_ID;
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds
-    ]
+    intents: [GatewayIntentBits.Guilds]
 });
 
+// ===== Persistência simples =====
 let pedidos = {};
+let ranking = {};
 let contador = 1;
 
-const comandos = [
+if (fs.existsSync("ranking.json")) {
+    ranking = JSON.parse(fs.readFileSync("ranking.json"));
+}
+
+function salvarRanking() {
+    fs.writeFileSync("ranking.json", JSON.stringify(ranking, null, 2));
+}
+
+// ===== Tabela de preços =====
+const tabela = {
+    Parceiro: {
+        Pistola: 150,
+        Sub: 250,
+        Rifle: 400,
+        Escopeta: 500
+    },
+    Pista: {
+        Pistola: 200,
+        Sub: 300,
+        Rifle: 450,
+        Escopeta: 600
+    }
+};
+
+// ===== Slash commands =====
+const commands = [
     new SlashCommandBuilder()
         .setName("painel")
         .setDescription("Enviar painel de vendas")
@@ -41,499 +65,236 @@ const comandos = [
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
-
-    await rest.put(
-        Routes.applicationGuildCommands(
-            CLIENT_ID,
-            GUILD_ID
-        ),
-        {
-            body: comandos
-        }
-    );
-
-    console.log("✅ Slash Commands registrados");
-
+    try {
+        await rest.put(
+            Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+            { body: commands }
+        );
+        console.log("✅ Slash Commands registrados");
+    } catch (err) {
+        console.error(err);
+    }
 })();
 
 client.once("ready", () => {
-
-    console.log(`🤖 ${client.user.tag} online`);
-
+    console.log(`🤖 ${client.user.tag} Online`);
 });
 
-client.on("interactionCreate", async interaction => {
+client.on("interactionCreate", async (interaction) => {
 
-    // ===========================
-    // COMANDO /PAINEL
-    // ===========================
-
+    // ===== /painel =====
     if (interaction.isChatInputCommand()) {
-
         if (interaction.commandName === "painel") {
-
             const embed = new EmbedBuilder()
-
-                .setColor("#1e1f22")
-
+                .setColor("#2B2D31")
                 .setTitle("💣 MARROKAN STORE")
-
                 .setDescription(`
-Bem-vindo ao sistema de vendas.
-
-Clique no botão abaixo para realizar um pedido.
-
-━━━━━━━━━━━━━━━━━━━━━━
-
+# Sistema de vendas
+Clique no botão abaixo para criar um pedido.
+━━━━━━━━━━━━━━━━━━━━━━━
 🟢 Atendimento Automático
-
-📦 Estoque Atualizado
-
-💰 Melhor preço da cidade
-
-━━━━━━━━━━━━━━━━━━━━━━
+💣 Entrega rápida
+📦 Estoque atualizado
+━━━━━━━━━━━━━━━━━━━━━━━
 `);
 
-            const row = new ActionRowBuilder()
-
-                .addComponents(
-
-                    new ButtonBuilder()
-
-                        .setCustomId("novo_pedido")
-
-                        .setLabel("🛒 Fazer Pedido")
-
-                        .setStyle(ButtonStyle.Success)
-
-                );
-
-            return interaction.reply({
-
-                embeds: [embed],
-
-                components: [row]
-
-            });
-
-        }
-
-    }
-
-    // ===========================
-    // BOTÃO
-    // ===========================
-
-    if (interaction.isButton()) {
-
-        if (interaction.customId === "novo_pedido") {
-
-            const modal = new ModalBuilder()
-
-                .setCustomId("dados_cliente")
-
-                .setTitle("Novo Pedido");
-
-            const nome = new TextInputBuilder()
-
-                .setCustomId("nome")
-
-                .setLabel("Nome RP")
-
-                .setStyle(TextInputStyle.Short);
-
-            const telefone = new TextInputBuilder()
-
-                .setCustomId("telefone")
-
-                .setLabel("Telefone In-Game")
-
-                .setStyle(TextInputStyle.Short);
-
-            modal.addComponents(
-
-                new ActionRowBuilder().addComponents(nome),
-
-                new ActionRowBuilder().addComponents(telefone)
-
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId("novoPedido")
+                    .setLabel("🛒 Fazer Pedido")
+                    .setStyle(ButtonStyle.Success)
             );
 
-            return interaction.showModal(modal);
-
+            return interaction.reply({ embeds: [embed], components: [row] });
         }
-
+        return;
     }
 
-    // ===========================
-    // MODAL
-    // ===========================
+    // ===== Botão: iniciar pedido -> escolher categoria =====
+    if (interaction.isButton() && interaction.customId === "novoPedido") {
+        const menu = new StringSelectMenuBuilder()
+            .setCustomId("escolherCategoria")
+            .setPlaceholder("Selecione a categoria")
+            .addOptions(
+                Object.keys(tabela).map(categoria => ({
+                    label: categoria,
+                    value: categoria
+                }))
+            );
 
-    if (interaction.isModalSubmit()) {
+        const row = new ActionRowBuilder().addComponents(menu);
 
-        if (interaction.customId === "dados_cliente") {
+        return interaction.reply({
+            content: "Escolha a categoria do pedido:",
+            components: [row],
+            ephemeral: true
+        });
+    }
 
-            const nome = interaction.fields.getTextInputValue("nome");
+    // ===== Select: categoria -> escolher arma =====
+    if (interaction.isStringSelectMenu() && interaction.customId === "escolherCategoria") {
+        const categoria = interaction.values[0];
+        const armas = tabela[categoria];
 
-            const telefone = interaction.fields.getTextInputValue("telefone");
+        const menu = new StringSelectMenuBuilder()
+            .setCustomId(`escolherArma_${categoria}`)
+            .setPlaceholder("Selecione o item")
+            .addOptions(
+                Object.entries(armas).map(([nome, preco]) => ({
+                    label: `${nome} - $${preco}`,
+                    value: nome
+                }))
+            );
 
-            pedidos[interaction.user.id] = {
+        const row = new ActionRowBuilder().addComponents(menu);
 
-                nome,
+        return interaction.update({
+            content: `Categoria: **${categoria}**\nAgora escolha o item:`,
+            components: [row]
+        });
+    }
 
-                telefone
+    // ===== Select: arma -> abrir modal de quantidade =====
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("escolherArma_")) {
+        const categoria = interaction.customId.split("_")[1];
+        const arma = interaction.values[0];
 
-            };
+        const modal = new ModalBuilder()
+            .setCustomId(`modalQuantidade_${categoria}_${arma}`)
+            .setTitle(`Pedido - ${arma}`);
 
-            const menu = new ActionRowBuilder()
+        const inputQuantidade = new TextInputBuilder()
+            .setCustomId("quantidade")
+            .setLabel("Quantidade")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("Ex: 1")
+            .setRequired(true);
 
-                .addComponents(
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(inputQuantidade)
+        );
 
-                    new StringSelectMenuBuilder()
+        return interaction.showModal(modal);
+    }
 
-                        .setCustomId("produto")
+    // ===== Modal: confirmar quantidade -> criar pedido =====
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("modalQuantidade_")) {
+        const [, categoria, arma] = interaction.customId.split("_");
+        const quantidadeRaw = interaction.fields.getTextInputValue("quantidade");
+        const quantidade = parseInt(quantidadeRaw, 10);
 
-                        .setPlaceholder("Escolha o produto")
-
-                        .addOptions(
-
-                            {
-
-                                label: "🔫 Pistola",
-
-                                value: "Pistola"
-
-                            },
-
-                            {
-
-                                label: "🔫 Sub",
-
-                                value: "Sub"
-
-                            },
-
-                            {
-
-                                label: "🎯 Rifle",
-
-                                value: "Rifle"
-
-                            },
-
-                            {
-
-                                label: "💥 Escopeta",
-
-                                value: "Escopeta"
-
-                            }
-
-                        )
-
-                );
-
+        if (isNaN(quantidade) || quantidade <= 0) {
             return interaction.reply({
-
-                content: "Escolha o produto",
-
-                components: [menu],
-
+                content: "❌ Quantidade inválida. Use apenas números maiores que 0.",
                 ephemeral: true
-
             });
-
         }
 
-    }
+        const precoUnitario = tabela[categoria][arma];
+        const total = precoUnitario * quantidade;
+        const pedidoId = contador++;
 
-});
-// ===========================
-// MENU PRODUTO
-// ===========================
-
-if (interaction.isStringSelectMenu()) {
-
-    // PRODUTO
-    if (interaction.customId === "produto") {
-
-        pedidos[interaction.user.id].produto = interaction.values[0];
-
-        const row = new ActionRowBuilder()
-            .addComponents(
-
-                new StringSelectMenuBuilder()
-
-                    .setCustomId("quantidade")
-
-                    .setPlaceholder("Escolha a quantidade")
-
-                    .addOptions(
-
-                        { label: "50", value: "50" },
-                        { label: "100", value: "100" },
-                        { label: "250", value: "250" },
-                        { label: "500", value: "500" },
-                        { label: "1000", value: "1000" }
-
-                    )
-
-            );
-
-        return interaction.update({
-
-            content: "📦 Escolha a quantidade",
-
-            components: [row]
-
-        });
-
-    }
-
-    // QUANTIDADE
-    if (interaction.customId === "quantidade") {
-
-        pedidos[interaction.user.id].quantidade = Number(interaction.values[0]);
-
-        const row = new ActionRowBuilder()
-
-            .addComponents(
-
-                new StringSelectMenuBuilder()
-
-                    .setCustomId("categoria")
-
-                    .setPlaceholder("Categoria")
-
-                    .addOptions(
-
-                        {
-
-                            label: "🤝 Parceiro",
-
-                            value: "Parceiro"
-
-                        },
-
-                        {
-
-                            label: "🚔 Pista",
-
-                            value: "Pista"
-
-                        }
-
-                    )
-
-            );
-
-        return interaction.update({
-
-            content: "💰 Escolha a categoria",
-
-            components: [row]
-
-        });
-
-    }
-
-    // CATEGORIA
-    if (interaction.customId === "categoria") {
-
-        pedidos[interaction.user.id].categoria = interaction.values[0];
-
-        const dados = pedidos[interaction.user.id];
-
-        let preco = 0;
-
-        // TABELA DE PREÇOS
-        const tabela = {
-
-            Parceiro: {
-
-                Pistola: 150,
-
-                Sub: 250,
-
-                Rifle: 400,
-
-                Escopeta: 500
-
-            },
-
-            Pista: {
-
-                Pistola: 200,
-
-                Sub: 300,
-
-                Rifle: 450,
-
-                Escopeta: 600
-
-            }
-
+        pedidos[pedidoId] = {
+            id: pedidoId,
+            cliente: interaction.user.id,
+            categoria,
+            arma,
+            quantidade,
+            total,
+            status: "pendente"
         };
 
-        preco = tabela[dados.categoria][dados.produto] * dados.quantidade;
-
-        const numeroPedido = String(contador).padStart(6, "0");
-
-        contador++;
-
-        dados.numero = numeroPedido;
-
-        dados.valor = preco;
-
-        dados.clienteDiscord = interaction.user.id;
-
-        dados.status = "🟡 Aguardando vendedor";
-
         const embed = new EmbedBuilder()
-
-            .setColor("#1f1f1f")
-
-            .setTitle(`📦 Pedido #${numeroPedido}`)
-
+            .setColor("#2B2D31")
+            .setTitle(`🧾 Pedido #${pedidoId}`)
             .addFields(
-
-                {
-
-                    name: "👤 Cliente",
-
-                    value: dados.nome,
-
-                    inline: true
-
-                },
-
-                {
-
-                    name: "📱 Telefone",
-
-                    value: dados.telefone,
-
-                    inline: true
-
-                },
-
-                {
-
-                    name: "🔫 Produto",
-
-                    value: dados.produto,
-
-                    inline: true
-
-                },
-
-                {
-
-                    name: "📦 Quantidade",
-
-                    value: dados.quantidade.toString(),
-
-                    inline: true
-
-                },
-
-                {
-
-                    name: "💰 Categoria",
-
-                    value: dados.categoria,
-
-                    inline: true
-
-                },
-
-                {
-
-                    name: "💵 Valor",
-
-                    value: `R$ ${preco.toLocaleString("pt-BR")}`,
-
-                    inline: true
-
-                },
-
-                {
-
-                    name: "👮 Responsável",
-
-                    value: "Aguardando..."
-
-                },
-
-                {
-
-                    name: "📌 Status",
-
-                    value: dados.status
-
-                }
-
+                { name: "Cliente", value: `<@${interaction.user.id}>`, inline: true },
+                { name: "Categoria", value: categoria, inline: true },
+                { name: "Item", value: arma, inline: true },
+                { name: "Quantidade", value: `${quantidade}`, inline: true },
+                { name: "Total", value: `$${total}`, inline: true },
+                { name: "Status", value: "🟡 Pendente", inline: true }
             )
-
             .setTimestamp();
 
-        const botoes = new ActionRowBuilder()
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`entregarPedido_${pedidoId}`)
+                .setLabel("✅ Marcar como entregue")
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId(`cancelarPedido_${pedidoId}`)
+                .setLabel("❌ Cancelar pedido")
+                .setStyle(ButtonStyle.Danger)
+        );
 
-            .addComponents(
+        const canalVendas = await client.channels.fetch(CANAL_VENDAS_ID).catch(() => null);
+        if (canalVendas) {
+            await canalVendas.send({ embeds: [embed], components: [row] });
+        }
 
-                new ButtonBuilder()
-
-                    .setCustomId(`assumir_${numeroPedido}`)
-
-                    .setLabel("👤 Assumir")
-
-                    .setStyle(ButtonStyle.Primary),
-
-                new ButtonBuilder()
-
-                    .setCustomId(`entregar_${numeroPedido}`)
-
-                    .setLabel("✅ Entregar")
-
-                    .setStyle(ButtonStyle.Success)
-
-                    .setDisabled(true),
-
-                new ButtonBuilder()
-
-                    .setCustomId(`cancelar_${numeroPedido}`)
-
-                    .setLabel("❌ Cancelar")
-
-                    .setStyle(ButtonStyle.Danger)
-
-                    .setDisabled(true)
-
-            );
-
-        const canal = await client.channels.fetch(CANAL_VENDAS);
-
-        const mensagem = await canal.send({
-
-            embeds: [embed],
-
-            components: [botoes]
-
+        return interaction.reply({
+            content: `✅ Pedido criado com sucesso! Total: **$${total}**`,
+            ephemeral: true
         });
-
-        dados.mensagem = mensagem.id;
-
-        pedidos[numeroPedido] = dados;
-
-        delete pedidos[interaction.user.id];
-
-        return interaction.update({
-
-            content: "✅ Pedido enviado com sucesso!",
-
-            components: []
-
-        });
-
     }
 
-}
+    // ===== Botão: marcar pedido como entregue =====
+    if (interaction.isButton() && interaction.customId.startsWith("entregarPedido_")) {
+        const pedidoId = interaction.customId.split("_")[1];
+        const pedido = pedidos[pedidoId];
+
+        if (!pedido) {
+            return interaction.reply({ content: "Pedido não encontrado.", ephemeral: true });
+        }
+
+        if (pedido.status === "entregue") {
+            return interaction.reply({ content: "Esse pedido já foi entregue.", ephemeral: true });
+        }
+
+        pedido.status = "entregue";
+
+        // Atualiza ranking do vendedor (quem clicou no botão)
+        const vendedorId = interaction.user.id;
+        if (!ranking[vendedorId]) {
+            ranking[vendedorId] = { vendas: 0, total: 0 };
+        }
+        ranking[vendedorId].vendas += 1;
+        ranking[vendedorId].total += pedido.total;
+        salvarRanking();
+
+        const embedAtualizado = EmbedBuilder.from(interaction.message.embeds[0])
+            .spliceFields(5, 1, { name: "Status", value: `🟢 Entregue por <@${vendedorId}>`, inline: true });
+
+        await interaction.update({ embeds: [embedAtualizado], components: [] });
+
+        const canalLogs = await client.channels.fetch(CANAL_LOGS_ID).catch(() => null);
+        if (canalLogs) {
+            canalLogs.send(
+                `📦 Pedido #${pedidoId} entregue por <@${vendedorId}> — Total: $${pedido.total}`
+            );
+        }
+
+        return;
+    }
+
+    // ===== Botão: cancelar pedido =====
+    if (interaction.isButton() && interaction.customId.startsWith("cancelarPedido_")) {
+        const pedidoId = interaction.customId.split("_")[1];
+        const pedido = pedidos[pedidoId];
+
+        if (!pedido) {
+            return interaction.reply({ content: "Pedido não encontrado.", ephemeral: true });
+        }
+
+        pedido.status = "cancelado";
+
+        const embedAtualizado = EmbedBuilder.from(interaction.message.embeds[0])
+            .spliceFields(5, 1, { name: "Status", value: "🔴 Cancelado", inline: true });
+
+        return interaction.update({ embeds: [embedAtualizado], components: [] });
+    }
+});
+
+client.login(TOKEN);
+ 
