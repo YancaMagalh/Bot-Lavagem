@@ -328,8 +328,9 @@ Clique no botão abaixo para criar um pedido.
                 { name: "Produto", value: produtoNome, inline: true },
                 { name: "Categoria", value: categoria, inline: true },
                 { name: "Item", value: item, inline: true },
-                { name: "Quantidade", value: `${quantidade}`, inline: true },
-                { name: "Total", value: formatarReal(total), inline: true },
+                { name: "💰 Valor unitário", value: formatarReal(precoUnitario), inline: true },
+                { name: "📦 Quantidade", value: `${quantidade}`, inline: true },
+                { name: "💵 Total da venda", value: formatarReal(total), inline: true },
                 { name: "Status", value: "🟡 Pendente", inline: true }
             )
             .setTimestamp();
@@ -381,7 +382,7 @@ Clique no botão abaixo para criar um pedido.
         salvarRanking();
 
         const embedAtualizado = EmbedBuilder.from(interaction.message.embeds[0])
-            .spliceFields(6, 1, { name: "Status", value: `🟢 Entregue por <@${vendedorId}>`, inline: true });
+            .spliceFields(7, 1, { name: "Status", value: `🟢 Entregue por <@${vendedorId}>`, inline: true });
 
         await interaction.update({ embeds: [embedAtualizado], components: [] });
 
@@ -407,7 +408,7 @@ Clique no botão abaixo para criar um pedido.
         pedido.status = "cancelado";
 
         const embedAtualizado = EmbedBuilder.from(interaction.message.embeds[0])
-            .spliceFields(6, 1, { name: "Status", value: "🔴 Cancelado", inline: true });
+            .spliceFields(7, 1, { name: "Status", value: "🔴 Cancelado", inline: true });
 
         return interaction.update({ embeds: [embedAtualizado], components: [] });
     }
