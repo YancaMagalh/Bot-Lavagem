@@ -11,7 +11,8 @@ const {
     TextInputBuilder,
     TextInputStyle,
     EmbedBuilder,
-    StringSelectMenuBuilder
+    StringSelectMenuBuilder,
+    PermissionFlagsBits
 } = require('discord.js');
 const fs = require('fs');
 require('dotenv').config();
@@ -56,18 +57,18 @@ const tabelas = {
             Escopeta: 600
         }
     },
-    "Munição (Pack 50)": {
+    "Munição": {
         Parceiro: {
-            "M. de Pistola": 8000,
-            "M. de Sub": 10000,
-            "M. de Rifle": 12000,
-            "M. de Escopeta": 14000
+            "M. de Pistola": 160,
+            "M. de Sub": 200,
+            "M. de Rifle": 240,
+            "M. de Escopeta": 280
         },
         Pista: {
-            "M. de Pistola": 10000,
-            "M. de Sub": 12000,
-            "M. de Rifle": 14000,
-            "M. de Escopeta": 16000
+            "M. de Pistola": 200,
+            "M. de Sub": 240,
+            "M. de Rifle": 280,
+            "M. de Escopeta": 320
         }
     }
 };
@@ -75,7 +76,7 @@ const tabelas = {
 // Apelidos curtos pra usar no customId (não pode ter espaços/acentos problemáticos)
 const produtoKeys = {
     Armas: "Armas",
-    "Munição (Pack 50)": "Municao"
+    "Munição": "Municao"
 };
 const produtoPorKey = Object.fromEntries(
     Object.entries(produtoKeys).map(([nome, key]) => [key, nome])
@@ -89,7 +90,11 @@ function formatarReal(valor) {
 const commands = [
     new SlashCommandBuilder()
         .setName("painel")
-        .setDescription("Enviar painel de vendas")
+        .setDescription("Enviar painel de vendas"),
+    new SlashCommandBuilder()
+        .setName("resetranking")
+        .setDescription("Zera o ranking de vendas")
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -137,7 +142,53 @@ Clique no botão abaixo para criar um pedido.
 
             return interaction.reply({ embeds: [embed], components: [row] });
         }
+
+        // ===== /resetranking =====
+        if (interaction.commandName === "resetranking") {
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId("confirmarResetRanking")
+                    .setLabel("✅ Confirmar reset")
+                    .setStyle(ButtonStyle.Danger),
+                new ButtonBuilder()
+                    .setCustomId("cancelarResetRanking")
+                    .setLabel("Cancelar")
+                    .setStyle(ButtonStyle.Secondary)
+            );
+
+            return interaction.reply({
+                content: "⚠️ Isso vai **zerar o ranking de vendas** de todos os vendedores. Tem certeza?",
+                components: [row],
+                ephemeral: true
+            });
+        }
         return;
+    }
+
+    // ===== Botão: confirmar reset do ranking =====
+    if (interaction.isButton() && interaction.customId === "confirmarResetRanking") {
+        ranking = {};
+        salvarRanking();
+
+        await interaction.update({
+            content: "✅ Ranking de vendas resetado com sucesso!",
+            components: []
+        });
+
+        const canalLogs = await client.channels.fetch(CANAL_LOGS_ID).catch(() => null);
+        if (canalLogs) {
+            canalLogs.send(`🔄 Ranking de vendas foi resetado por <@${interaction.user.id}>.`);
+        }
+
+        return;
+    }
+
+    // ===== Botão: cancelar reset do ranking =====
+    if (interaction.isButton() && interaction.customId === "cancelarResetRanking") {
+        return interaction.update({
+            content: "❌ Reset do ranking cancelado.",
+            components: []
+        });
     }
 
     // ===== Botão: iniciar pedido -> escolher produto =====
@@ -218,15 +269,13 @@ Clique no botão abaixo para criar um pedido.
         const item = interaction.values[0];
         const produtoNome = produtoPorKey[produtoKey];
 
-        const ehMunicao = produtoKey === "Municao";
-
         const modal = new ModalBuilder()
             .setCustomId(`modalQuantidade_${produtoKey}_${categoria}_${item}`)
             .setTitle(`Pedido - ${item}`);
 
         const inputQuantidade = new TextInputBuilder()
             .setCustomId("quantidade")
-            .setLabel(ehMunicao ? "Quantidade de packs (50un cada)" : "Quantidade")
+            .setLabel("Quantidade")
             .setStyle(TextInputStyle.Short)
             .setPlaceholder("Ex: 1")
             .setRequired(true);
