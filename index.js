@@ -10,156 +10,530 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    EmbedBuilder
+    EmbedBuilder,
+    StringSelectMenuBuilder
 } = require('discord.js');
 
-const fs = require('fs');
 require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
-const CANAL_LAVAGEM_ID = process.env.CANAL_LAVAGEM_ID;
-const CANAL_RANKING_ID = process.env.CANAL_RANKING_ID;
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
-    console.error('❌ Variáveis não configuradas!');
-    process.exit(1);
-}
+const CANAL_VENDAS = process.env.CANAL_VENDAS;
+const CANAL_LOGS = process.env.CANAL_LOGS;
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds]
+    intents: [
+        GatewayIntentBits.Guilds
+    ]
 });
 
-let dados = {};
-if (fs.existsSync('ranking.json')) {
-    dados = JSON.parse(fs.readFileSync('ranking.json'));
-}
+let pedidos = {};
+let contador = 1;
 
-const commands = [
+const comandos = [
     new SlashCommandBuilder()
-        .setName('ranking')
-        .setDescription('Ver ranking')
-        .setDMPermission(false)
-].map(cmd => cmd.toJSON());
+        .setName("painel")
+        .setDescription("Enviar painel de vendas")
+].map(c => c.toJSON());
 
-const rest = new REST({ version: '10' }).setToken(TOKEN);
+const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
-    try {
-        await rest.put(
-            Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-            { body: commands }
-        );
-        console.log('✅ Comandos registrados');
-    } catch (err) {
-        console.error(err);
-    }
-})();
 
-client.once('clientReady', async () => {
-    console.log(`🤖 Bot online como ${client.user.tag}`);
-
-    const canal = await client.channels.fetch(CANAL_LAVAGEM_ID);
-
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('parceria')
-            .setLabel('🤝 Com parceria (25%)')
-            .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-            .setCustomId('sem_parceria')
-            .setLabel('💼 Sem parceria (30%)')
-            .setStyle(ButtonStyle.Danger)
+    await rest.put(
+        Routes.applicationGuildCommands(
+            CLIENT_ID,
+            GUILD_ID
+        ),
+        {
+            body: comandos
+        }
     );
 
-    const embed = new EmbedBuilder()
-        .setTitle('💸 Sistema de Lavagem')
-        .setDescription('Clique abaixo para iniciar')
-        .setColor(0x00ff88);
+    console.log("✅ Slash Commands registrados");
 
-    canal.send({ embeds: [embed], components: [row] });
+})();
+
+client.once("ready", () => {
+
+    console.log(`🤖 ${client.user.tag} online`);
+
 });
 
-client.on('interactionCreate', async interaction => {
+client.on("interactionCreate", async interaction => {
+
+    // ===========================
+    // COMANDO /PAINEL
+    // ===========================
+
+    if (interaction.isChatInputCommand()) {
+
+        if (interaction.commandName === "painel") {
+
+            const embed = new EmbedBuilder()
+
+                .setColor("#1e1f22")
+
+                .setTitle("💣 MARROKAN STORE")
+
+                .setDescription(`
+Bem-vindo ao sistema de vendas.
+
+Clique no botão abaixo para realizar um pedido.
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+🟢 Atendimento Automático
+
+📦 Estoque Atualizado
+
+💰 Melhor preço da cidade
+
+━━━━━━━━━━━━━━━━━━━━━━
+`);
+
+            const row = new ActionRowBuilder()
+
+                .addComponents(
+
+                    new ButtonBuilder()
+
+                        .setCustomId("novo_pedido")
+
+                        .setLabel("🛒 Fazer Pedido")
+
+                        .setStyle(ButtonStyle.Success)
+
+                );
+
+            return interaction.reply({
+
+                embeds: [embed],
+
+                components: [row]
+
+            });
+
+        }
+
+    }
+
+    // ===========================
+    // BOTÃO
+    // ===========================
 
     if (interaction.isButton()) {
-        const modal = new ModalBuilder()
-            .setCustomId(interaction.customId)
-            .setTitle('💰 Valor da lavagem');
 
-        const input = new TextInputBuilder()
-            .setCustomId('valor')
-            .setLabel('Digite o valor')
-            .setStyle(TextInputStyle.Short);
+        if (interaction.customId === "novo_pedido") {
 
-        modal.addComponents(new ActionRowBuilder().addComponents(input));
-        return interaction.showModal(modal);
+            const modal = new ModalBuilder()
+
+                .setCustomId("dados_cliente")
+
+                .setTitle("Novo Pedido");
+
+            const nome = new TextInputBuilder()
+
+                .setCustomId("nome")
+
+                .setLabel("Nome RP")
+
+                .setStyle(TextInputStyle.Short);
+
+            const telefone = new TextInputBuilder()
+
+                .setCustomId("telefone")
+
+                .setLabel("Telefone In-Game")
+
+                .setStyle(TextInputStyle.Short);
+
+            modal.addComponents(
+
+                new ActionRowBuilder().addComponents(nome),
+
+                new ActionRowBuilder().addComponents(telefone)
+
+            );
+
+            return interaction.showModal(modal);
+
+        }
+
     }
+
+    // ===========================
+    // MODAL
+    // ===========================
 
     if (interaction.isModalSubmit()) {
 
-        const valor = parseFloat(interaction.fields.getTextInputValue('valor'));
+        if (interaction.customId === "dados_cliente") {
 
-        if (isNaN(valor)) {
-            return interaction.reply({ content: '❌ Valor inválido!', ephemeral: true });
+            const nome = interaction.fields.getTextInputValue("nome");
+
+            const telefone = interaction.fields.getTextInputValue("telefone");
+
+            pedidos[interaction.user.id] = {
+
+                nome,
+
+                telefone
+
+            };
+
+            const menu = new ActionRowBuilder()
+
+                .addComponents(
+
+                    new StringSelectMenuBuilder()
+
+                        .setCustomId("produto")
+
+                        .setPlaceholder("Escolha o produto")
+
+                        .addOptions(
+
+                            {
+
+                                label: "🔫 Pistola",
+
+                                value: "Pistola"
+
+                            },
+
+                            {
+
+                                label: "🔫 Sub",
+
+                                value: "Sub"
+
+                            },
+
+                            {
+
+                                label: "🎯 Rifle",
+
+                                value: "Rifle"
+
+                            },
+
+                            {
+
+                                label: "💥 Escopeta",
+
+                                value: "Escopeta"
+
+                            }
+
+                        )
+
+                );
+
+            return interaction.reply({
+
+                content: "Escolha o produto",
+
+                components: [menu],
+
+                ephemeral: true
+
+            });
+
         }
 
-        const taxa = interaction.customId === 'parceria' ? 0.25 : 0.30;
-        const aposTaxa = valor * (1 - taxa);
-        const lucro = aposTaxa * 0.10;
-        const banco = aposTaxa - lucro;
+    }
 
-        if (!dados[interaction.user.id]) dados[interaction.user.id] = 0;
-        dados[interaction.user.id] += valor;
+});
+// ===========================
+// MENU PRODUTO
+// ===========================
 
-        fs.writeFileSync('ranking.json', JSON.stringify(dados, null, 2));
+if (interaction.isStringSelectMenu()) {
 
-        const embed = new EmbedBuilder()
-            .setTitle('💸 Lavagem realizada')
-            .setColor(0x00ff88)
-            .addFields(
-                { name: '👤 Usuário', value: `<@${interaction.user.id}>` },
-                { name: '💰 Valor', value: `${valor}` },
-                { name: '📉 Taxa', value: `${taxa * 100}%` },
-                { name: '💵 Após taxa', value: `${aposTaxa.toFixed(2)}` },
-                { name: '🧾 Lucro', value: `${lucro.toFixed(2)}` },
-                { name: '🏦 Banco', value: `${banco.toFixed(2)}` }
+    // PRODUTO
+    if (interaction.customId === "produto") {
+
+        pedidos[interaction.user.id].produto = interaction.values[0];
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+
+                new StringSelectMenuBuilder()
+
+                    .setCustomId("quantidade")
+
+                    .setPlaceholder("Escolha a quantidade")
+
+                    .addOptions(
+
+                        { label: "50", value: "50" },
+                        { label: "100", value: "100" },
+                        { label: "250", value: "250" },
+                        { label: "500", value: "500" },
+                        { label: "1000", value: "1000" }
+
+                    )
+
             );
 
-        const canal = await client.channels.fetch(CANAL_LAVAGEM_ID);
-        const msg = await canal.send({ embeds: [embed] });
+        return interaction.update({
 
-        setTimeout(() => msg.delete().catch(() => {}), 5000);
+            content: "📦 Escolha a quantidade",
 
-        await interaction.reply({
-            content: '✅ Lavagem registrada!',
-            ephemeral: true
+            components: [row]
+
         });
 
-        const ranking = Object.entries(dados)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10);
-
-        const medals = ['🥇', '🥈', '🥉'];
-
-        const texto = ranking.map((r, i) => {
-            const medal = medals[i] || '🏅';
-            return `${medal} <@${r[0]}> - 💰 ${r[1]}`;
-        }).join('\n');
-
-        const embedRanking = new EmbedBuilder()
-            .setTitle('📊 Ranking de Lavagem')
-            .setColor(0xffd700)
-            .setDescription(texto || 'Sem dados');
-
-        const canalRanking = await client.channels.fetch(CANAL_RANKING_ID);
-
-        const mensagens = await canalRanking.messages.fetch({ limit: 10 });
-        await canalRanking.bulkDelete(mensagens).catch(() => {});
-
-        canalRanking.send({ embeds: [embedRanking] });
     }
-});
 
-client.login(TOKEN);
+    // QUANTIDADE
+    if (interaction.customId === "quantidade") {
+
+        pedidos[interaction.user.id].quantidade = Number(interaction.values[0]);
+
+        const row = new ActionRowBuilder()
+
+            .addComponents(
+
+                new StringSelectMenuBuilder()
+
+                    .setCustomId("categoria")
+
+                    .setPlaceholder("Categoria")
+
+                    .addOptions(
+
+                        {
+
+                            label: "🤝 Parceiro",
+
+                            value: "Parceiro"
+
+                        },
+
+                        {
+
+                            label: "🚔 Pista",
+
+                            value: "Pista"
+
+                        }
+
+                    )
+
+            );
+
+        return interaction.update({
+
+            content: "💰 Escolha a categoria",
+
+            components: [row]
+
+        });
+
+    }
+
+    // CATEGORIA
+    if (interaction.customId === "categoria") {
+
+        pedidos[interaction.user.id].categoria = interaction.values[0];
+
+        const dados = pedidos[interaction.user.id];
+
+        let preco = 0;
+
+        // TABELA DE PREÇOS
+        const tabela = {
+
+            Parceiro: {
+
+                Pistola: 150,
+
+                Sub: 250,
+
+                Rifle: 400,
+
+                Escopeta: 500
+
+            },
+
+            Pista: {
+
+                Pistola: 200,
+
+                Sub: 300,
+
+                Rifle: 450,
+
+                Escopeta: 600
+
+            }
+
+        };
+
+        preco = tabela[dados.categoria][dados.produto] * dados.quantidade;
+
+        const numeroPedido = String(contador).padStart(6, "0");
+
+        contador++;
+
+        dados.numero = numeroPedido;
+
+        dados.valor = preco;
+
+        dados.clienteDiscord = interaction.user.id;
+
+        dados.status = "🟡 Aguardando vendedor";
+
+        const embed = new EmbedBuilder()
+
+            .setColor("#1f1f1f")
+
+            .setTitle(`📦 Pedido #${numeroPedido}`)
+
+            .addFields(
+
+                {
+
+                    name: "👤 Cliente",
+
+                    value: dados.nome,
+
+                    inline: true
+
+                },
+
+                {
+
+                    name: "📱 Telefone",
+
+                    value: dados.telefone,
+
+                    inline: true
+
+                },
+
+                {
+
+                    name: "🔫 Produto",
+
+                    value: dados.produto,
+
+                    inline: true
+
+                },
+
+                {
+
+                    name: "📦 Quantidade",
+
+                    value: dados.quantidade.toString(),
+
+                    inline: true
+
+                },
+
+                {
+
+                    name: "💰 Categoria",
+
+                    value: dados.categoria,
+
+                    inline: true
+
+                },
+
+                {
+
+                    name: "💵 Valor",
+
+                    value: `R$ ${preco.toLocaleString("pt-BR")}`,
+
+                    inline: true
+
+                },
+
+                {
+
+                    name: "👮 Responsável",
+
+                    value: "Aguardando..."
+
+                },
+
+                {
+
+                    name: "📌 Status",
+
+                    value: dados.status
+
+                }
+
+            )
+
+            .setTimestamp();
+
+        const botoes = new ActionRowBuilder()
+
+            .addComponents(
+
+                new ButtonBuilder()
+
+                    .setCustomId(`assumir_${numeroPedido}`)
+
+                    .setLabel("👤 Assumir")
+
+                    .setStyle(ButtonStyle.Primary),
+
+                new ButtonBuilder()
+
+                    .setCustomId(`entregar_${numeroPedido}`)
+
+                    .setLabel("✅ Entregar")
+
+                    .setStyle(ButtonStyle.Success)
+
+                    .setDisabled(true),
+
+                new ButtonBuilder()
+
+                    .setCustomId(`cancelar_${numeroPedido}`)
+
+                    .setLabel("❌ Cancelar")
+
+                    .setStyle(ButtonStyle.Danger)
+
+                    .setDisabled(true)
+
+            );
+
+        const canal = await client.channels.fetch(CANAL_VENDAS);
+
+        const mensagem = await canal.send({
+
+            embeds: [embed],
+
+            components: [botoes]
+
+        });
+
+        dados.mensagem = mensagem.id;
+
+        pedidos[numeroPedido] = dados;
+
+        delete pedidos[interaction.user.id];
+
+        return interaction.update({
+
+            content: "✅ Pedido enviado com sucesso!",
+
+            components: []
+
+        });
+
+    }
+
+}
