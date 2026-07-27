@@ -59,16 +59,16 @@ const tabelas = {
     },
     "Munição": {
         Parceiro: {
-            "M. de Pistola": 160,
-            "M. de Sub": 200,
-            "M. de Rifle": 240,
-            "M. de Escopeta": 280
+            "M. de Pistola": 400,
+            "M. de Sub": 610,
+            "M. de Rifle": 830,
+            "M. de Escopeta": 1000
         },
         Pista: {
-            "M. de Pistola": 200,
-            "M. de Sub": 240,
-            "M. de Rifle": 280,
-            "M. de Escopeta": 320
+            "M. de Pistola": 430,
+            "M. de Sub": 640,
+            "M. de Rifle": 850,
+            "M. de Escopeta": 1100
         }
     }
 };
