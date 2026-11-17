@@ -28,16 +28,24 @@ const client = new Client({
 });
 
 // ===== Persistência simples =====
+const ARQUIVO_DADOS = "dados.json";
 let pedidos = {};
 let ranking = {};
 let contador = 1;
 
-if (fs.existsSync("ranking.json")) {
-    ranking = JSON.parse(fs.readFileSync("ranking.json"));
+try {
+    if (fs.existsSync(ARQUIVO_DADOS)) {
+        const dados = JSON.parse(fs.readFileSync(ARQUIVO_DADOS, "utf8"));
+        pedidos = dados.pedidos ?? {};
+        ranking = dados.ranking ?? {};
+        contador = dados.contador ?? (Math.max(0, ...Object.keys(pedidos).map(Number)) + 1);
+    }
+} catch (err) {
+    console.error(`Não foi possível carregar ${ARQUIVO_DADOS}:`, err);
 }
 
-function salvarRanking() {
-    fs.writeFileSync("ranking.json", JSON.stringify(ranking, null, 2));
+function salvarDados() {
+    fs.writeFileSync(ARQUIVO_DADOS, JSON.stringify({ pedidos, ranking, contador }, null, 2));
 }
 
 // ===== Tabela de preços =====
@@ -98,6 +106,10 @@ const commands = [
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
+    throw new Error("Configure TOKEN, CLIENT_ID e GUILD_ID nas variáveis de ambiente da hospedagem.");
+}
 
 (async () => {
     try {
@@ -168,7 +180,7 @@ Clique no botão abaixo para criar um pedido.
     // ===== Botão: confirmar reset do ranking =====
     if (interaction.isButton() && interaction.customId === "confirmarResetRanking") {
         ranking = {};
-        salvarRanking();
+        salvarDados();
 
         await interaction.update({
             content: "✅ Ranking de vendas resetado com sucesso!",
@@ -217,6 +229,9 @@ Clique no botão abaixo para criar um pedido.
         const produtoKey = interaction.values[0];
         const produtoNome = produtoPorKey[produtoKey];
         const categorias = tabelas[produtoNome];
+        if (!categorias) {
+            return interaction.reply({ content: "Produto inválido. Abra um novo pedido.", ephemeral: true });
+        }
 
         const menu = new StringSelectMenuBuilder()
             .setCustomId(`escolherCategoria_${produtoKey}`)
@@ -242,6 +257,9 @@ Clique no botão abaixo para criar um pedido.
         const produtoNome = produtoPorKey[produtoKey];
         const categoria = interaction.values[0];
         const itens = tabelas[produtoNome][categoria];
+        if (!itens) {
+            return interaction.reply({ content: "Categoria inválida. Abra um novo pedido.", ephemeral: true });
+        }
 
         const menu = new StringSelectMenuBuilder()
             .setCustomId(`escolherItem_${produtoKey}_${categoria}`)
@@ -268,6 +286,9 @@ Clique no botão abaixo para criar um pedido.
         const categoria = partes[2];
         const item = interaction.values[0];
         const produtoNome = produtoPorKey[produtoKey];
+        if (!produtoNome || !tabelas[produtoNome]?.[categoria]?.[item]) {
+            return interaction.reply({ content: "Item inválido. Abra um novo pedido.", ephemeral: true });
+        }
 
         const modal = new ModalBuilder()
             .setCustomId(`modalQuantidade_${produtoKey}_${categoria}_${item}`)
@@ -294,11 +315,14 @@ Clique no botão abaixo para criar um pedido.
         const categoria = partes[2];
         const item = partes.slice(3).join("_");
         const produtoNome = produtoPorKey[produtoKey];
+        if (!produtoNome || !tabelas[produtoNome]?.[categoria]?.[item]) {
+            return interaction.reply({ content: "Esse item não é válido. Crie um novo pedido.", ephemeral: true });
+        }
 
         const quantidadeRaw = interaction.fields.getTextInputValue("quantidade");
         const quantidade = parseInt(quantidadeRaw, 10);
 
-        if (isNaN(quantidade) || quantidade <= 0) {
+        if (!Number.isSafeInteger(quantidade) || quantidade <= 0) {
             return interaction.reply({
                 content: "❌ Quantidade inválida. Use apenas números maiores que 0.",
                 ephemeral: true
@@ -319,6 +343,7 @@ Clique no botão abaixo para criar um pedido.
             total,
             status: "pendente"
         };
+        salvarDados();
 
         const embed = new EmbedBuilder()
             .setColor("#2B2D31")
@@ -366,8 +391,8 @@ Clique no botão abaixo para criar um pedido.
             return interaction.reply({ content: "Pedido não encontrado.", ephemeral: true });
         }
 
-        if (pedido.status === "entregue") {
-            return interaction.reply({ content: "Esse pedido já foi entregue.", ephemeral: true });
+        if (pedido.status !== "pendente") {
+            return interaction.reply({ content: `Esse pedido já está ${pedido.status}.`, ephemeral: true });
         }
 
         pedido.status = "entregue";
@@ -379,7 +404,7 @@ Clique no botão abaixo para criar um pedido.
         }
         ranking[vendedorId].vendas += 1;
         ranking[vendedorId].total += pedido.total;
-        salvarRanking();
+        salvarDados();
 
         const embedAtualizado = EmbedBuilder.from(interaction.message.embeds[0])
             .spliceFields(7, 1, { name: "Status", value: `🟢 Entregue por <@${vendedorId}>`, inline: true });
@@ -405,7 +430,12 @@ Clique no botão abaixo para criar um pedido.
             return interaction.reply({ content: "Pedido não encontrado.", ephemeral: true });
         }
 
+        if (pedido.status !== "pendente") {
+            return interaction.reply({ content: `Esse pedido já está ${pedido.status}.`, ephemeral: true });
+        }
+
         pedido.status = "cancelado";
+        salvarDados();
 
         const embedAtualizado = EmbedBuilder.from(interaction.message.embeds[0])
             .spliceFields(7, 1, { name: "Status", value: "🔴 Cancelado", inline: true });
